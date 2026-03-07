@@ -5,7 +5,7 @@
 ## 当前支持
 
 - Netflix
-- YouTube Premium
+- YouTube Premium / Region
 - Disney+
 - Prime Video
 - Max / HBO
@@ -14,17 +14,25 @@
 - TikTok
 - ChatGPT
 - Gemini
+- Claude
+- Bing Search
+- Google Search
+- Google Play Store
+- iQIYI
+- Instagram Licensed Audio
+- MetaAI
+- OneTrust
+- Paramount+
+- Reddit
+- SonyLiv
+- Sora
+- Steam Store
+- TVBAnywhere+
+- Viu
 - Abema
 - DAZN
 - Bilibili
-
-输出示例：
-
-```bash
-Netflix        yes (us)
-YouTube        yes (us)
-Disney+        no
-```
+- KOCOWA
 
 ## 使用方法
 
