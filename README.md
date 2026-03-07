@@ -111,3 +111,10 @@ Apple                     YES (Region: JPN)
 Netflix                   YES (Region: JP)
 MetaAI                    Unknown: unexpected response: ajax status=401, home status=403
 ```
+
+
+## 新版补充
+
+- 已统一常见地区格式，例如 `JP / JPN` 统一显示为 `JP`
+- 已细化部分失败原因，例如 `Failed (Network Connection Failed)`、`Failed (Access Denied)`、`Failed (HTTP xxx)`
+- 已补充 `TikTok Region` 与 `Spotify Registration` 的更细化检测逻辑
