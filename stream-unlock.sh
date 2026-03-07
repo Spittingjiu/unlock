@@ -53,25 +53,11 @@ extract_country_code(){
   printf "%s" "$html" | grep -oE 'countryCode["=: ]+[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true
 }
 
-apple(){
-  local c html r
-  c="$(code https://tv.apple.com/)"
-  html="$(body)"
-  r="$(extract_country_code "$html")"
-  if [[ "$c" == "200" ]]; then yes_with_region "Apple" "$r"; else NO "Apple" "NO"; fi
-}
-
+apple(){ local c html r; c="$(code https://tv.apple.com/)"; html="$(body)"; r="$(extract_country_code "$html")"; [[ "$c" == "200" ]] && yes_with_region "Apple" "$r" || NO "Apple" "NO"; }
 bing(){ local c; c="$(code https://www.bing.com/)"; [[ "$c" == "200" ]] && YES "BingSearch" "YES" || NO "BingSearch" "NO"; }
 claude(){ local c; c="$(code https://claude.ai/)"; [[ "$c" == "200" || "$c" == "403" ]] && YES "Claude" "YES" || NO "Claude" "NO"; }
 dazn(){ local c; c="$(code https://www.dazn.com/)"; [[ "$c" == "200" ]] && YES "Dazn" "YES" || NO "Dazn" "NO"; }
-
-disney(){
-  local html r
-  html="$(fetch https://www.disneyplus.com/ || true)"
-  r="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"
-  if printf "%s" "$html" | grep -qiE 'disney\+|stream now'; then yes_with_region "Disney+" "$r"; else NO "Disney+" "NO"; fi
-}
-
+disney(){ local html r; html="$(fetch https://www.disneyplus.com/ || true)"; r="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"; if printf "%s" "$html" | grep -qiE 'disney\+|stream now'; then yes_with_region "Disney+" "$r"; else NO "Disney+" "NO"; fi; }
 gemini(){ local c; c="$(code https://gemini.google.com/)"; [[ "$c" == "200" || "$c" == "403" ]] && YES "Gemini" "YES" || NO "Gemini" "NO"; }
 google_search(){ local c; c="$(code https://www.google.com/)"; [[ "$c" == "200" ]] && YES "GoogleSearch" "YES" || NO "GoogleSearch" "NO"; }
 google_play(){ local c; c="$(code https://play.google.com/store)"; [[ "$c" == "200" ]] && YES "Google Play Store" "YES" || NO "Google Play Store" "NO"; }
@@ -81,11 +67,24 @@ kocowa(){ local c; c="$(code https://www.kocowa.com/)"; [[ "$c" == "200" ]] && Y
 metaai(){ local ajax home; ajax="$(code https://www.meta.ai/api/)"; home="$(code https://www.meta.ai/)"; if [[ "$ajax" == "200" && "$home" == "200" ]]; then YES "MetaAI" "YES"; elif [[ "$ajax" == "401" || "$home" == "403" ]]; then UNKNOWN "MetaAI" "UNKNOWN"; else NO "MetaAI" "NO"; fi; }
 
 netflix(){
-  local c html r
-  c="$(code https://www.netflix.com/title/81280792)"
+  local original full c1 c2 html region
+  original="https://www.netflix.com/title/80018499"
+  full="https://www.netflix.com/title/70143836"
+  c1="$(code "$original")"
+  c2="$(code "$full")"
   html="$(fetch https://www.netflix.com/ || true)"
-  r="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"
-  [[ "$c" == "200" ]] && yes_with_region "Netflix" "$r" || NO "Netflix" "NO"
+  region="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"
+
+  if [[ "$c2" == "200" ]]; then
+    region="$(norm_region "$region")"
+    [[ -n "$region" ]] && YES "Netflix" "YES (Full Library / Region: $region)" || YES "Netflix" "YES (Full Library)"
+  elif [[ "$c1" == "200" ]]; then
+    YES "Netflix" "YES (Originals Only)"
+  elif [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "404" || "$c2" == "404" ]]; then
+    NO "Netflix" "NO"
+  else
+    UNKNOWN "Netflix" "UNKNOWN"
+  fi
 }
 
 netflix_cdn(){ UNKNOWN "Netflix CDN" "UNKNOWN"; }
@@ -102,22 +101,9 @@ tvb(){ local c; c="$(code https://www.tvbanywhere.com/)"; [[ "$c" == "200" ]] &&
 tiktok(){ local c; c="$(code https://www.tiktok.com/)"; [[ "$c" == "200" ]] && YES "TikTok" "YES" || NO "TikTok" "NO"; }
 viu(){ local c; c="$(code https://www.viu.com/)"; [[ "$c" == "200" ]] && YES "Viu.com" "YES" || NO "Viu.com" "NO"; }
 wiki_edit(){ UNKNOWN "Wikipedia Editability" "UNKNOWN"; }
-
-youtube_region(){
-  local html r
-  html="$(fetch https://www.youtube.com/premium || true)"
-  r="$(printf "%s" "$html" | grep -o 'countryCode\":\"[A-Z][A-Z]' | head -1 | awk -F'"' '{print $3}' || true)"
-  if printf "%s" "$html" | grep -qi 'YouTube and YouTube Music ad-free'; then yes_with_region "YouTube Region" "$r"; else NO "YouTube Region" "NO"; fi
-}
-
+youtube_region(){ local html r; html="$(fetch https://www.youtube.com/premium || true)"; r="$(printf "%s" "$html" | grep -o 'countryCode\":\"[A-Z][A-Z]' | head -1 | awk -F'"' '{print $3}' || true)"; if printf "%s" "$html" | grep -qi 'YouTube and YouTube Music ad-free'; then yes_with_region "YouTube Region" "$r"; else NO "YouTube Region" "NO"; fi; }
 youtube_cdn(){ UNKNOWN "YouTube CDN" "UNKNOWN"; }
-
-tiktok_region(){
-  local html rg
-  html="$(fetch https://www.tiktok.com/ || true)"
-  rg="$(printf "%s" "$html" | grep -oE 'region.?[:=].?[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true)"
-  [[ -n "$rg" ]] && YES "Tiktok Region:" "$(norm_region "$rg")" || UNKNOWN "Tiktok Region:" "UNKNOWN"
-}
+tiktok_region(){ local html rg; html="$(fetch https://www.tiktok.com/ || true)"; rg="$(printf "%s" "$html" | grep -oE 'region.?[:=].?[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true)"; [[ -n "$rg" ]] && YES "Tiktok Region:" "$(norm_region "$rg")" || UNKNOWN "Tiktok Region:" "UNKNOWN"; }
 
 echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
 apple

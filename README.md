@@ -137,3 +137,13 @@ MetaAI                    Unknown: unexpected response: ajax status=401, home st
 - 检测不到可靠地区时，只输出 `YES` 或 `UNKNOWN`
 - 明确不可用 / 不解锁时，输出 `NO`
 - 不再使用硬编码地区或伪造地区结果
+
+
+## Netflix 判定
+
+当前 Netflix 检测分为四种结果：
+
+- `YES (Full Library / Region: XX)`：可访问非自制剧，视为完整解锁
+- `YES (Originals Only)`：仅可访问 Netflix 自制内容
+- `NO`：明确不可用或不解锁
+- `UNKNOWN`：无法可靠判断
