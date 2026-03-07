@@ -1,0 +1,47 @@
+# unlock
+
+一个简单的流媒体解锁检测脚本，用来快速测试 VPS 对常见平台的访问情况。
+
+## 当前支持
+
+- Netflix
+- YouTube Premium
+- Disney+
+- Prime Video
+- Max / HBO
+- Bilibili
+
+输出示例：
+
+```bash
+Netflix      yes (us)
+YouTube      yes (us)
+Disney+      no
+```
+
+## 使用方法
+
+### 直接运行
+
+```bash
+chmod +x stream-unlock.sh
+./stream-unlock.sh
+```
+
+### 一键命令
+
+```bash
+git clone https://github.com/Spittingjiu/unlock.git && cd unlock && chmod +x stream-unlock.sh && ./stream-unlock.sh
+```
+
+## 说明
+
+- 这是基于网页/API特征的基础检测脚本
+- 结果可作为参考，但不是官方级 100% 结论
+- 平台风控、地区策略、返回内容变化，都可能影响检测结果
+
+## 适用场景
+
+- 新 VPS 到手后的快速解锁测试
+- 对比不同机房/不同地区机器的流媒体表现
+- 粗略判断某平台是否可用
