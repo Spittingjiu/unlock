@@ -49,6 +49,26 @@ chmod +x stream-unlock.sh
 git clone https://github.com/Spittingjiu/unlock.git && cd unlock && chmod +x stream-unlock.sh && ./stream-unlock.sh
 ```
 
+### bash + curl 一键运行
+
+直接运行最新版脚本：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/unlock/master/stream-unlock.sh)
+```
+
+只测 IPv4：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/unlock/master/stream-unlock.sh) -4
+```
+
+只测 IPv6：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/Spittingjiu/unlock/master/stream-unlock.sh) -6
+```
+
 ## IPv4 / IPv6 分开测试
 
 只测 IPv4：
