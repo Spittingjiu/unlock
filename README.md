@@ -80,3 +80,14 @@ git clone https://github.com/Spittingjiu/unlock.git && cd unlock && chmod +x str
 - 新 VPS 到手后的快速解锁测试
 - 对比不同机房/不同地区机器的流媒体表现
 - 粗略判断某平台是否可用
+
+
+## 输出风格
+
+当前输出风格已调整为更接近常见流媒体检测脚本样式，例如：
+
+```bash
+Apple                     YES (Region: JPN)
+Netflix                   YES (Region: JP)
+MetaAI                    Unknown: unexpected response: ajax status=401, home status=403
+```
