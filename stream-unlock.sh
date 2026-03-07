@@ -45,7 +45,7 @@ failed_reason(){
   esac
 }
 
-simple_yes(){ local name="$1" url="$2" c; c="$(code "$url")"; [[ "$c" == "200" ]] && YES "$name" "YES (Region: $(country))" || NO "$name" "NO"; }
+simple_yes(){ local name="$1" url="$2" c; c="$(code "$url")"; [[ "$c" == "200" ]] && YES "$name" "YES (Region: $(norm_region "$(country)"))" || NO "$name" "NO"; }
 
 apple(){ local c; c="$(code https://tv.apple.com/)"; [[ "$c" == "200" ]] && YES "Apple" "YES (Region: $(norm_region JPN))" || NO "Apple" "NO"; }
 bing(){ local c; c="$(code https://www.bing.com/)"; [[ "$c" == "200" ]] && YES "BingSearch" "YES (Region: $(norm_region "$(country)"))" || NO "BingSearch" "NO"; }
@@ -61,7 +61,7 @@ kocowa(){ local c; c="$(code https://www.kocowa.com/)"; [[ "$c" == "200" ]] && Y
 metaai(){ local ajax home; ajax="$(code https://www.meta.ai/api/)"; home="$(code https://www.meta.ai/)"; if [[ "$ajax" == "200" && "$home" == "200" ]]; then YES "MetaAI" "YES"; elif [[ "$ajax" == "401" || "$home" == "403" ]]; then MAYBE "MetaAI" "Unknown: unexpected response: ajax status=$ajax, home status=$home"; else NO "MetaAI" "NO"; fi; }
 netflix(){ local c html r; c="$(code https://www.netflix.com/title/81280792)"; html="$(fetch https://www.netflix.com/ || true)"; r="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"; [[ "$c" == "200" ]] && YES "Netflix" "YES (Region: $(norm_region "$r"))" || NO "Netflix" "NO"; }
 netflix_cdn(){ YES "Netflix CDN" "$(norm_region "$(country)")"; }
-onetrust(){ local c; c="$(code https://www.onetrust.com/)"; [[ "$c" == "200" ]] && YES "OneTrust" "YES (Region: $(norm_region "$(country)") TOKYO)" || NO "OneTrust" "NO"; }
+onetrust(){ local c; c="$(code https://www.onetrust.com/)"; [[ "$c" == "200" ]] && YES "OneTrust" "YES (Region: $(norm_region "$(country)"))" || NO "OneTrust" "NO"; }
 chatgpt(){ local c; c="$(code https://chatgpt.com/)"; [[ "$c" == "200" || "$c" == "403" ]] && YES "ChatGPT" "YES (Region: $(norm_region "$(country)"))" || NO "ChatGPT" "NO"; }
 paramount(){ local c; c="$(code https://www.paramountplus.com/)"; [[ "$c" == "200" ]] && YES "Paramount+" "YES" || MAYBE "Paramount+" "$(failed_reason "$c")"; }
 prime(){ local c; c="$(code https://www.primevideo.com/)"; [[ "$c" == "200" ]] && YES "Amazon Prime Video" "YES (Region: $(norm_region "$(country)"))" || NO "Amazon Prime Video" "NO"; }
