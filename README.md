@@ -9,14 +9,21 @@
 - Disney+
 - Prime Video
 - Max / HBO
+- Apple TV+
+- Spotify
+- TikTok
+- ChatGPT
+- Gemini
+- Abema
+- DAZN
 - Bilibili
 
 输出示例：
 
 ```bash
-Netflix      yes (us)
-YouTube      yes (us)
-Disney+      no
+Netflix        yes (us)
+YouTube        yes (us)
+Disney+        no
 ```
 
 ## 使用方法
@@ -33,6 +40,26 @@ chmod +x stream-unlock.sh
 ```bash
 git clone https://github.com/Spittingjiu/unlock.git && cd unlock && chmod +x stream-unlock.sh && ./stream-unlock.sh
 ```
+
+## IPv4 / IPv6 分开测试
+
+只测 IPv4：
+
+```bash
+./stream-unlock.sh -4
+```
+
+只测 IPv6：
+
+```bash
+./stream-unlock.sh -6
+```
+
+## 特性
+
+- 彩色输出
+- 支持 IPv4 / IPv6 分开测试
+- 多平台基础检测
 
 ## 说明
 
