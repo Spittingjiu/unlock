@@ -118,3 +118,12 @@ MetaAI                    Unknown: unexpected response: ajax status=401, home st
 - 已统一常见地区格式，例如 `JP / JPN` 统一显示为 `JP`
 - 已细化部分失败原因，例如 `Failed (Network Connection Failed)`、`Failed (Access Denied)`、`Failed (HTTP xxx)`
 - 已补充 `TikTok Region` 与 `Spotify Registration` 的更细化检测逻辑
+
+
+## 检测说明
+
+新版已清理明显的硬编码地区输出：
+
+- 能从页面/API提取地区时，优先提取真实地区
+- 提取不到时，不再瞎写固定地区
+- 部分 CDN / Region 项如果拿不到可靠信息，会显示 `UNKNOWN` 或保守结果
