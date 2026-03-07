@@ -108,6 +108,6 @@ viu
 wiki_edit
 youtube_region
 youtube_cdn
-echo "---------------------TikTok解 锁 --感 谢 lmc999的 源 脚 本 ---------------------"
+echo "--------------------- TikTok Region ---------------------"
 tiktok_region
 rm -f /tmp/unlock.$$
