@@ -10,7 +10,7 @@
 - 不能可靠判断就输出 `UNKNOWN`
 - 只有拿到可靠地区信息时，才输出 `Region`
 
-## 当前重点平台
+## 当前平台
 
 - Netflix
 - Disney+
@@ -22,6 +22,21 @@
 - Gemini
 - Claude
 - Apple
+- BingSearch
+- GoogleSearch
+- Google Play Store
+- IQiYi
+- Instagram Licensed Audio
+- KOCOWA
+- MetaAI
+- OneTrust
+- Paramount+
+- Reddit
+- SonyLiv
+- Sora
+- Steam Store
+- TVBAnywhere+
+- Viu.com
 
 ## 一键运行
 

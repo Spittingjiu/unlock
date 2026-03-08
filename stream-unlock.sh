@@ -186,6 +186,58 @@ claude(){
   fi
 }
 
+
+extra_simple_yes(){
+  local name="$1" url="$2" c
+  c="$(code "$url")"
+  if [[ "$c" == "200" ]]; then
+    YES "$name" "YES"
+  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+    NO "$name" "NO"
+  else
+    UNKNOWN "$name" "UNKNOWN"
+  fi
+}
+
+bing_extra(){ extra_simple_yes "BingSearch" "https://www.bing.com/"; }
+google_search_extra(){ extra_simple_yes "GoogleSearch" "https://www.google.com/"; }
+google_play_extra(){ extra_simple_yes "Google Play Store" "https://play.google.com/store"; }
+iqiyi_extra(){ extra_simple_yes "IQiYi" "https://www.iq.com/"; }
+insta_audio_extra(){ extra_simple_yes "Instagram Licensed Audio" "https://www.instagram.com/"; }
+kocowa_extra(){ extra_simple_yes "KOCOWA" "https://www.kocowa.com/"; }
+onetrust_extra(){ extra_simple_yes "OneTrust" "https://www.onetrust.com/"; }
+paramount_extra(){ extra_simple_yes "Paramount+" "https://www.paramountplus.com/"; }
+reddit_extra(){ extra_simple_yes "Reddit" "https://www.reddit.com/"; }
+sonyliv_extra(){ extra_simple_yes "SonyLiv" "https://www.sonyliv.com/"; }
+sora_extra(){
+  local c
+  c="$(code https://sora.com/)"
+  if [[ "$c" == "200" || "$c" == "403" ]]; then
+    YES "Sora" "YES"
+  elif [[ "$c" == "404" ]]; then
+    NO "Sora" "NO"
+  else
+    UNKNOWN "Sora" "UNKNOWN"
+  fi
+}
+steam_extra(){ extra_simple_yes "Steam Store" "https://store.steampowered.com/"; }
+tvb_extra(){ extra_simple_yes "TVBAnywhere+" "https://www.tvbanywhere.com/"; }
+viu_extra(){ extra_simple_yes "Viu.com" "https://www.viu.com/"; }
+metaai_extra(){
+  local ajax home
+  ajax="$(code https://www.meta.ai/api/)"
+  home="$(code https://www.meta.ai/)"
+  if [[ "$ajax" == "200" && "$home" == "200" ]]; then
+    YES "MetaAI" "YES"
+  elif [[ "$ajax" == "401" || "$home" == "403" ]]; then
+    UNKNOWN "MetaAI" "UNKNOWN"
+  elif [[ "$ajax" == "403" || "$home" == "404" ]]; then
+    NO "MetaAI" "NO"
+  else
+    UNKNOWN "MetaAI" "UNKNOWN"
+  fi
+}
+
 apple(){
   local c html region
   c="$(code https://tv.apple.com/)"
@@ -201,7 +253,7 @@ apple(){
   fi
 }
 
-echo -e "${C_BLUE}Streaming unlock test (core platforms)${C_RESET}"
+echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
 netflix
 disney
 youtube
@@ -212,4 +264,19 @@ chatgpt
 gemini
 claude
 apple
+bing_extra
+google_search_extra
+google_play_extra
+iqiyi_extra
+insta_audio_extra
+kocowa_extra
+metaai_extra
+onetrust_extra
+paramount_extra
+reddit_extra
+sonyliv_extra
+sora_extra
+steam_extra
+tvb_extra
+viu_extra
 rm -f /tmp/unlock.$$
