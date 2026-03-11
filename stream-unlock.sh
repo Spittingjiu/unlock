@@ -75,7 +75,7 @@ http_get(){
   tmp="$(mktemp -t unlock-http.XXXXXX)"
   code="$(curl "${CURL_COMMON[@]}" -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null || true)"
   [[ -n "$code" ]] || code="000"
-  body="$(cat "$tmp" 2>/dev/null || true)"
+  body="$(<"$tmp" 2>/dev/null || true)"
   rm -f "$tmp"
   printf -v "$out_code" '%s' "$code"
   printf -v "$out_body" '%s' "$body"
@@ -87,7 +87,6 @@ GEO_IP=""; GEO_CC=""; GEO_COUNTRY=""; GEO_REGION=""; GEO_CITY=""
 # Best-effort JSON extraction for simple flat JSON fields (no jq dependency).
 # 不是完整 JSON parser；遇到复杂嵌套/转义字段可能不准确。
 parse_json_field(){
-
   local key="$1"
   sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
@@ -259,17 +258,16 @@ probe_netflix(){
 
 probe_disney(){
   enabled disney || return 0
-  local c html region
+  local c html
   http_get "https://www.disneyplus.com/" c html
-  region="$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')"
 
   if printf '%s' "$html" | grep -qiE 'disney\+|disneyplus|watch now on disney\+'; then
-    emit_result "Disney+" "YES" "" "$region"; return
+    emit_result "Disney+" "YES"; return
   fi
   if printf '%s' "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
     emit_result "Disney+" "NO"; return
   fi
-  emit_from_http "Disney+" "$c" "$region"
+  emit_from_http "Disney+" "$c"
 }
 
 probe_youtube(){
@@ -308,25 +306,23 @@ probe_prime(){
 
 probe_tiktok(){
   enabled tiktok || return 0
-  local c html region
+  local c html
   http_get "https://www.tiktok.com/" c html
-  region="$(extract_region_regex "$html" '"region":"[A-Z]{2}"')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qi 'tiktok'; then
-    emit_result "TikTok" "YES" "" "$region"
+    emit_result "TikTok" "YES"
   else
-    emit_from_http "TikTok" "$c" "$region"
+    emit_from_http "TikTok" "$c"
   fi
 }
 
 probe_spotify(){
   enabled spotify || return 0
-  local c html region
+  local c html
   http_get "https://www.spotify.com/us/signup" c html
-  region="$(extract_region_regex "$html" 'country["=: ]+"[A-Z]{2}"')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'sign up|spotify'; then
-    emit_result "Spotify Registration" "YES" "" "$region"
+    emit_result "Spotify Registration" "YES"
   else
-    emit_from_http "Spotify Registration" "$c" "$region"
+    emit_from_http "Spotify Registration" "$c"
   fi
 }
 
@@ -371,10 +367,9 @@ probe_metaai(){
 probe_basic_service(){
   local key="$1" name="$2" url="$3"
   enabled "$key" || return 0
-  local c html region
+  local c html
   http_get "$url" c html
-  region="$(service_region_strict "$html")"
-  emit_from_http "$name" "$c" "$region"
+  emit_from_http "$name" "$c"
 }
 
 # ---------- main ----------
