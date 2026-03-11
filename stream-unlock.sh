@@ -54,6 +54,8 @@ check_deps(){
   fi
 }
 
+# Best-effort JSON field extraction (no jq dependency).
+# 注意：这是轻量提取，不是严格 JSON 解析器。
 parse_json_field(){
   local key="$1"
   sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
@@ -116,6 +118,17 @@ extract_quoted_country(){
   printf "%s" "$html" | grep -oE 'countryCode"[: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true
 }
 
+classify_http(){
+  # stdout: YES|NO|BLOCKED|UNKNOWN
+  local code="${1:-}"
+  case "$code" in
+    200) printf '%s\n' YES ;;
+    404) printf '%s\n' NO ;;
+    403|429) printf '%s\n' BLOCKED ;;
+    *) printf '%s\n' UNKNOWN ;;
+  esac
+}
+
 netflix(){
   local original full c1 c2 html region
   original="https://www.netflix.com/title/80018499"
@@ -140,17 +153,29 @@ netflix(){
 }
 
 disney(){
-  local html region
-  html="$(fetch https://www.disneyplus.com/ || true)"
+  local html c region cls
+  http_get "https://www.disneyplus.com/" c html
   region="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"
   region="$(norm_region "$region")"
-  if printf "%s" "$html" | grep -qiE 'disney\+|stream now'; then
+
+  # positive
+  if printf "%s" "$html" | grep -qiE 'disney\+|stream now|disneyplus'; then
     [[ -n "$region" ]] && YES "Disney+" "YES (Region: $region)" || YES "Disney+" "YES"
-  elif [[ -n "$html" ]]; then
-    NO "Disney+" "NO"
-  else
-    UNKNOWN "Disney+" "UNKNOWN"
+    return
   fi
+
+  # explicit negative (content-based)
+  if printf "%s" "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
+    NO "Disney+" "NO"
+    return
+  fi
+
+  cls="$(classify_http "$c")"
+  case "$cls" in
+    NO) NO "Disney+" "NO" ;;
+    BLOCKED) UNKNOWN "Disney+" "BLOCKED_OR_CHALLENGED" ;;
+    *) UNKNOWN "Disney+" "UNKNOWN" ;;
+  esac
 }
 
 youtube(){
@@ -173,9 +198,13 @@ youtube(){
     return
   fi
 
-  # 返回码辅助判断：403/404 视为不可用
-  if [[ "$c" == "403" || "$c" == "404" ]]; then
+  # 返回码辅助判断
+  if [[ "$c" == "404" ]]; then
     NO "YouTube Premium" "NO"
+    return
+  fi
+  if [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "YouTube Premium" "BLOCKED_OR_CHALLENGED"
     return
   fi
 
@@ -317,18 +346,16 @@ steam_extra(){ extra_simple_yes "Steam Store" "https://store.steampowered.com/";
 tvb_extra(){ extra_simple_yes "TVBAnywhere+" "https://www.tvbanywhere.com/"; }
 viu_extra(){ extra_simple_yes "Viu.com" "https://www.viu.com/"; }
 metaai_extra(){
-  local ajax home
-  ajax="$(http_code https://www.meta.ai/api/)"
+  # MetaAI 以主页可达性为主，不过度解读 API 授权返回
+  local home cls
   home="$(http_code https://www.meta.ai/)"
-  if [[ "$ajax" == "200" && "$home" == "200" ]]; then
-    YES "MetaAI" "YES"
-  elif [[ "$ajax" == "401" || "$home" == "403" ]]; then
-    UNKNOWN "MetaAI" "UNKNOWN"
-  elif [[ "$ajax" == "403" || "$home" == "404" ]]; then
-    NO "MetaAI" "NO"
-  else
-    UNKNOWN "MetaAI" "UNKNOWN"
-  fi
+  cls="$(classify_http "$home")"
+  case "$cls" in
+    YES) YES "MetaAI" "YES" ;;
+    NO) NO "MetaAI" "NO" ;;
+    BLOCKED) UNKNOWN "MetaAI" "BLOCKED_OR_CHALLENGED" ;;
+    *) UNKNOWN "MetaAI" "UNKNOWN" ;;
+  esac
 }
 
 apple(){
