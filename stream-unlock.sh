@@ -258,11 +258,12 @@ probe_netflix(){
 
 probe_disney(){
   enabled disney || return 0
-  local c html
+  local c html region
   http_get "https://www.disneyplus.com/" c html
+  region="$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')"
 
   if printf '%s' "$html" | grep -qiE 'disney\+|disneyplus|watch now on disney\+'; then
-    emit_result "Disney+" "YES"; return
+    emit_result "Disney+" "YES" "" "$region"; return
   fi
   if printf '%s' "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
     emit_result "Disney+" "NO"; return
@@ -328,9 +329,7 @@ probe_spotify(){
 
 probe_chatgpt(){
   enabled chatgpt || return 0
-  local c html
-  http_get "https://chatgpt.com/" c html
-  emit_from_http "ChatGPT" "$c"
+  emit_from_http "ChatGPT" "$(http_code https://chatgpt.com/)"
 }
 probe_gemini(){
   enabled gemini || return 0
@@ -341,35 +340,25 @@ probe_gemini(){
 }
 probe_claude(){
   enabled claude || return 0
-  local c html
-  http_get "https://claude.ai/" c html
-  emit_from_http "Claude" "$c"
+  emit_from_http "Claude" "$(http_code https://claude.ai/)"
 }
 probe_apple(){
   enabled apple || return 0
-  local c html
-  http_get "https://tv.apple.com/" c html
-  emit_from_http "Apple" "$c"
+  emit_from_http "Apple" "$(http_code https://tv.apple.com/)"
 }
 probe_sora(){
   enabled sora || return 0
-  local c html
-  http_get "https://sora.com/" c html
-  emit_from_http "Sora" "$c"
+  emit_from_http "Sora" "$(http_code https://sora.com/)"
 }
 probe_metaai(){
   enabled metaai || return 0
-  local c html
-  http_get "https://www.meta.ai/" c html
-  emit_from_http "MetaAI (homepage)" "$c"
+  emit_from_http "MetaAI (homepage)" "$(http_code https://www.meta.ai/)"
 }
 
 probe_basic_service(){
   local key="$1" name="$2" url="$3"
   enabled "$key" || return 0
-  local c html
-  http_get "$url" c html
-  emit_from_http "$name" "$c"
+  emit_from_http "$name" "$(http_code "$url")"
 }
 
 # ---------- main ----------
