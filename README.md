@@ -84,3 +84,11 @@ Location: United States, California, Los Angeles (US)
 ```
 
 地区来源优先级：`ipapi.co` -> `ipwho.is` -> `ipinfo.io/country`（兜底）。
+
+## 工程改进（近期）
+
+- 临时文件：已改为 `mktemp` 并通过 `trap` 清理
+- 响应处理：移除旧的隐式 `code()+body()` 共享状态，改为显式 `http_get(url, codeVar, bodyVar)`
+- curl 参数：统一集中在 `CURL_COMMON`，避免多处漂移
+- 依赖检查：启动时检查 `curl/grep/sed/tr/cut/head/mktemp`
+- 状态语义：增加 `BLOCKED_OR_CHALLENGED`，减少对 `403` 的误判

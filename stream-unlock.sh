@@ -16,27 +16,24 @@ curl_ip_flag=()
 [[ "$IP_MODE" == "6" ]] && curl_ip_flag=(-6)
 
 TIMEOUT=20
-TMP_BODY="$(mktemp -t unlock-body.XXXXXX)"
-trap 'rm -f "$TMP_BODY"' EXIT
 
-fetch(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time "$TIMEOUT" "$@"; }
-http_code(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" "$1" || true; }
-HTTP_CODE=""; HTTP_BODY=""
+CURL_COMMON=("${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time "$TIMEOUT")
+
+fetch(){ curl "${CURL_COMMON[@]}" "$@"; }
+http_code(){ curl "${CURL_COMMON[@]}" -o /dev/null -w '%{http_code}' "$1" || true; }
 http_get(){
-  local url="$1"
-  HTTP_CODE="$(curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o "$TMP_BODY" -w '%{http_code}' --max-time "$TIMEOUT" "$url" || true)"
-  HTTP_BODY="$(cat "$TMP_BODY" 2>/dev/null || true)"
+  # usage: http_get <url> <out_code_var> <out_body_var>
+  local url="$1" out_code="$2" out_body="$3" tmp code body
+  tmp="$(mktemp -t unlock-http.XXXXXX)"
+  code="$(curl "${CURL_COMMON[@]}" -o "$tmp" -w '%{http_code}' "$url" || true)"
+  body="$(cat "$tmp" 2>/dev/null || true)"
+  rm -f "$tmp"
+  printf -v "$out_code" '%s' "$code"
+  printf -v "$out_body" '%s' "$body"
 }
 
 line(){ printf "%-25s %b%s%b\n" "$1" "$2" "$3" "$C_RESET"; }
-YES(){
-  local name="$1" msg="$2" rg
-  rg="$(norm_region "${GEO_CC:-}")"
-  if [[ "$msg" == YES* ]] && [[ "$msg" != *"Region:"* ]] && [[ -n "$rg" ]]; then
-    msg="$msg (Region: $rg)"
-  fi
-  line "$name" "$C_GREEN" "$msg"
-}
+YES(){ line "$1" "$C_GREEN" "$2"; }
 NO(){ line "$1" "$C_RED" "$2"; }
 UNKNOWN(){ line "$1" "$C_YELLOW" "$2"; }
 
@@ -45,6 +42,17 @@ GEO_CC=""
 GEO_COUNTRY=""
 GEO_REGION=""
 GEO_CITY=""
+
+check_deps(){
+  local miss=()
+  for c in curl grep sed tr cut head mktemp; do
+    command -v "$c" >/dev/null 2>&1 || miss+=("$c")
+  done
+  if [[ ${#miss[@]} -gt 0 ]]; then
+    echo "Missing dependencies: ${miss[*]}" >&2
+    exit 1
+  fi
+}
 
 parse_json_field(){
   local key="$1"
@@ -76,7 +84,7 @@ load_geo(){
 
 norm_region(){
   local r="${1:-}"
-  r="$(echo "$r" | tr '[:lower:]' '[:upper:]')"
+  r="$(printf '%s' "$r" | tr '[:lower:]' '[:upper:]')"
   case "$r" in
     JP|JPN) echo "JP" ;;
     US|USA) echo "US" ;;
@@ -122,8 +130,10 @@ netflix(){
     [[ -n "$region" ]] && YES "Netflix" "YES (Full Library / Region: $region)" || YES "Netflix" "YES (Full Library)"
   elif [[ "$c1" == "200" ]]; then
     YES "Netflix" "YES (Originals Only)"
-  elif [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "404" || "$c2" == "404" ]]; then
+  elif [[ "$c1" == "404" || "$c2" == "404" ]]; then
     NO "Netflix" "NO"
+  elif [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "429" || "$c2" == "429" ]]; then
+    UNKNOWN "Netflix" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Netflix" "UNKNOWN"
   fi
@@ -145,9 +155,7 @@ disney(){
 
 youtube(){
   local html c region
-  http_get "https://www.youtube.com/premium"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://www.youtube.com/premium" c html
   [[ -z "$html" ]] && html="$(fetch https://www.youtube.com/premium || true)"
 
   region="$(printf "%s" "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1 || true)"
@@ -171,25 +179,21 @@ youtube(){
     return
   fi
 
-  # 强兜底：页面可达即判 YES（避免误报 UNKNOWN）
-  if [[ "$c" == "200" && -n "$html" ]]; then
-    [[ -n "$region" ]] && YES "YouTube Premium" "YES (Region: $region)" || YES "YouTube Premium" "YES"
-  else
-    UNKNOWN "YouTube Premium" "UNKNOWN"
-  fi
+  # 模糊结果：页面可达但无明确正向信号，保持 UNKNOWN 避免误报
+  UNKNOWN "YouTube Premium" "UNKNOWN"
 }
 
 prime(){
   local c html region
-  http_get "https://www.primevideo.com/"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://www.primevideo.com/" c html
   region="$(printf "%s" "$html" | grep -oE 'currentTerritory["=: ]+[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
     [[ -n "$region" ]] && YES "Amazon Prime Video" "YES (Region: $region)" || YES "Amazon Prime Video" "YES"
-  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+  elif [[ "$c" == "404" ]]; then
     NO "Amazon Prime Video" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Amazon Prime Video" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Amazon Prime Video" "UNKNOWN"
   fi
@@ -197,15 +201,15 @@ prime(){
 
 tiktok(){
   local c html region
-  http_get "https://www.tiktok.com/"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://www.tiktok.com/" c html
   region="$(printf "%s" "$html" | grep -oE '"region":"[A-Z]{2}"' | head -1 | cut -d'"' -f4 || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
     [[ -n "$region" ]] && YES "TikTok" "YES (Region: $region)" || YES "TikTok" "YES"
-  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+  elif [[ "$c" == "404" ]]; then
     NO "TikTok" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "TikTok" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "TikTok" "UNKNOWN"
   fi
@@ -213,15 +217,15 @@ tiktok(){
 
 spotify(){
   local c html region
-  http_get "https://www.spotify.com/us/signup"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://www.spotify.com/us/signup" c html
   region="$(printf "%s" "$html" | grep -oE 'country["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]] && printf "%s" "$html" | grep -qiE 'sign up|spotify'; then
     [[ -n "$region" ]] && YES "Spotify Registration" "YES (Region: $region)" || YES "Spotify Registration" "YES"
-  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+  elif [[ "$c" == "404" ]]; then
     NO "Spotify Registration" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Spotify Registration" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Spotify Registration" "UNKNOWN"
   fi
@@ -243,9 +247,7 @@ chatgpt(){
 
 gemini(){
   local c html region
-  http_get "https://gemini.google.com/"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://gemini.google.com/" c html
   region="$(printf "%s" "$html" | grep -oE 'countryCode["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
@@ -331,20 +333,21 @@ metaai_extra(){
 
 apple(){
   local c html region
-  http_get "https://tv.apple.com/"
-  c="$HTTP_CODE"
-  html="$HTTP_BODY"
+  http_get "https://tv.apple.com/" c html
   region="$(extract_quoted_country "$html")"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
     [[ -n "$region" ]] && YES "Apple" "YES (Region: $region)" || YES "Apple" "YES"
-  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+  elif [[ "$c" == "404" ]]; then
     NO "Apple" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Apple" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Apple" "UNKNOWN"
   fi
 }
 
+check_deps
 load_geo
 echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
 [[ -n "$GEO_IP" ]] && echo "IP: $GEO_IP"
