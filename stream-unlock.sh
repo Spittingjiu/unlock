@@ -6,7 +6,11 @@ IP_MODE="all"
 [[ "${1:-}" == "-4" ]] && IP_MODE="4"
 [[ "${1:-}" == "-6" ]] && IP_MODE="6"
 
-C_RESET='\033[0m'; C_GREEN='\033[32m'; C_RED='\033[31m'; C_YELLOW='\033[33m'; C_BLUE='\033[34m'
+if [[ -t 1 ]]; then
+  C_RESET=$'\033[0m'; C_GREEN=$'\033[32m'; C_RED=$'\033[31m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
+else
+  C_RESET=''; C_GREEN=''; C_RED=''; C_YELLOW=''; C_BLUE=''
+fi
 curl_ip_flag=()
 [[ "$IP_MODE" == "4" ]] && curl_ip_flag=(-4)
 [[ "$IP_MODE" == "6" ]] && curl_ip_flag=(-6)
