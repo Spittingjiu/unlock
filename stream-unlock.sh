@@ -146,24 +146,16 @@ extract_quoted_country(){
 
 extract_region_any(){
   local html="$1" r=""
-  # priority: explicit service hints
+  # strict / higher-confidence hints only
   r="$(extract_region_regex "$html" 'INNERTUBE_CONTEXT_GL"[: ]+"[A-Z]{2}"')"
-  [[ -n "$r" ]] || r="$(extract_region_regex "$html" '"countryCode"[: ]+"[A-Z]{2}"')"
   [[ -n "$r" ]] || r="$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')"
-  [[ -n "$r" ]] || r="$(extract_region_regex "$html" '"region"[: ]+"[A-Z]{2}"')"
-  [[ -n "$r" ]] || r="$(extract_region_regex "$html" 'country["=: ]+"[A-Z]{2}"')"
+  [[ -n "$r" ]] || r="$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')"
   printf '%s\n' "$r"
 }
 
-service_region_or_geo(){
-  local html="$1" r
-  r="$(extract_region_any "$html")"
-  if [[ -n "$r" ]]; then
-    printf '%s\n' "$r"
-  else
-    # explicit fallback: IP geo country code, not service-inferred region
-    printf '%s\n' "$(norm_region "$GEO_CC")"
-  fi
+service_region_strict(){
+  local html="$1"
+  extract_region_any "$html"
 }
 
 classify_http(){
@@ -340,45 +332,40 @@ probe_spotify(){
 
 probe_chatgpt(){
   enabled chatgpt || return 0
-  local c html region
+  local c html
   http_get "https://chatgpt.com/" c html
-  region="$(service_region_or_geo "$html")"
-  emit_from_http "ChatGPT" "$c" "$region"
+  emit_from_http "ChatGPT" "$c"
 }
 probe_gemini(){
   enabled gemini || return 0
   local c html region
   http_get "https://gemini.google.com/" c html
-  region="$(service_region_or_geo "$html")"
+  region="$(service_region_strict "$html")"
   emit_from_http "Gemini" "$c" "$region"
 }
 probe_claude(){
   enabled claude || return 0
-  local c html region
+  local c html
   http_get "https://claude.ai/" c html
-  region="$(service_region_or_geo "$html")"
-  emit_from_http "Claude" "$c" "$region"
+  emit_from_http "Claude" "$c"
 }
 probe_apple(){
   enabled apple || return 0
-  local c html region
+  local c html
   http_get "https://tv.apple.com/" c html
-  region="$(service_region_or_geo "$html")"
-  emit_from_http "Apple" "$c" "$region"
+  emit_from_http "Apple" "$c"
 }
 probe_sora(){
   enabled sora || return 0
-  local c html region
+  local c html
   http_get "https://sora.com/" c html
-  region="$(service_region_or_geo "$html")"
-  emit_from_http "Sora" "$c" "$region"
+  emit_from_http "Sora" "$c"
 }
 probe_metaai(){
   enabled metaai || return 0
-  local c html region
+  local c html
   http_get "https://www.meta.ai/" c html
-  region="$(service_region_or_geo "$html")"
-  emit_from_http "MetaAI (homepage)" "$c" "$region"
+  emit_from_http "MetaAI (homepage)" "$c"
 }
 
 probe_basic_service(){
@@ -386,7 +373,7 @@ probe_basic_service(){
   enabled "$key" || return 0
   local c html region
   http_get "$url" c html
-  region="$(service_region_or_geo "$html")"
+  region="$(service_region_strict "$html")"
   emit_from_http "$name" "$c" "$region"
 }
 
