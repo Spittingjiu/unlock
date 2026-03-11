@@ -2,46 +2,35 @@
 set -euo pipefail
 
 UA="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122 Safari/537.36"
+TIMEOUT=20
 IP_MODE="all"
-[[ "${1:-}" == "-4" ]] && IP_MODE="4"
-[[ "${1:-}" == "-6" ]] && IP_MODE="6"
+NO_GEO=0
+JSON_MODE=0
+ONLY_RAW=""
 
-if [[ -t 1 ]]; then
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -4) IP_MODE="4" ;;
+    -6) IP_MODE="6" ;;
+    --timeout) shift; TIMEOUT="${1:-20}" ;;
+    --no-geo) NO_GEO=1 ;;
+    --json) JSON_MODE=1 ;;
+    --only) shift; ONLY_RAW="${1:-}" ;;
+    *) echo "Unknown arg: $1" >&2; exit 1 ;;
+  esac
+  shift
+done
+
+if [[ -t 1 && "$JSON_MODE" -eq 0 ]]; then
   C_RESET=$'\033[0m'; C_GREEN=$'\033[32m'; C_RED=$'\033[31m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
 else
   C_RESET=''; C_GREEN=''; C_RED=''; C_YELLOW=''; C_BLUE=''
 fi
+
 curl_ip_flag=()
 [[ "$IP_MODE" == "4" ]] && curl_ip_flag=(-4)
 [[ "$IP_MODE" == "6" ]] && curl_ip_flag=(-6)
-
-TIMEOUT=20
-
 CURL_COMMON=("${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time "$TIMEOUT")
-
-fetch(){ curl "${CURL_COMMON[@]}" "$@"; }
-http_code(){ curl "${CURL_COMMON[@]}" -o /dev/null -w '%{http_code}' "$1" || true; }
-http_get(){
-  # usage: http_get <url> <out_code_var> <out_body_var>
-  local url="$1" out_code="$2" out_body="$3" tmp code body
-  tmp="$(mktemp -t unlock-http.XXXXXX)"
-  code="$(curl "${CURL_COMMON[@]}" -o "$tmp" -w '%{http_code}' "$url" || true)"
-  body="$(cat "$tmp" 2>/dev/null || true)"
-  rm -f "$tmp"
-  printf -v "$out_code" '%s' "$code"
-  printf -v "$out_body" '%s' "$body"
-}
-
-line(){ printf "%-25s %b%s%b\n" "$1" "$2" "$3" "$C_RESET"; }
-YES(){ line "$1" "$C_GREEN" "$2"; }
-NO(){ line "$1" "$C_RED" "$2"; }
-UNKNOWN(){ line "$1" "$C_YELLOW" "$2"; }
-
-GEO_IP=""
-GEO_CC=""
-GEO_COUNTRY=""
-GEO_REGION=""
-GEO_CITY=""
 
 check_deps(){
   local miss=()
@@ -54,33 +43,57 @@ check_deps(){
   fi
 }
 
-# Best-effort JSON field extraction (no jq dependency).
-# 注意：这是轻量提取，不是严格 JSON 解析器。
+fetch(){ curl "${CURL_COMMON[@]}" "$@" || true; }
+
+http_code(){
+  local url="$1" code
+  code="$(curl "${CURL_COMMON[@]}" -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+  [[ -n "$code" ]] || code="000"
+  printf '%s\n' "$code"
+}
+
+http_get(){
+  # usage: http_get <url> <out_code_var> <out_body_var>
+  local url="$1" out_code="$2" out_body="$3" tmp code body
+  tmp="$(mktemp -t unlock-http.XXXXXX)"
+  code="$(curl "${CURL_COMMON[@]}" -o "$tmp" -w '%{http_code}' "$url" 2>/dev/null || true)"
+  [[ -n "$code" ]] || code="000"
+  body="$(cat "$tmp" 2>/dev/null || true)"
+  rm -f "$tmp"
+  printf -v "$out_code" '%s' "$code"
+  printf -v "$out_body" '%s' "$body"
+}
+
+# ---------- geo ----------
+GEO_IP=""; GEO_CC=""; GEO_COUNTRY=""; GEO_REGION=""; GEO_CITY=""
+
+# Best-effort JSON extraction (no jq dependency)
 parse_json_field(){
   local key="$1"
   sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
 
 load_geo(){
+  [[ "$NO_GEO" -eq 1 ]] && return 0
   local j
-  j="$(fetch https://ipapi.co/json/ || true)"
+  j="$(fetch https://ipapi.co/json/)"
   if [[ -n "$j" ]] && grep -q '"country"' <<<"$j"; then
-    GEO_IP="$(printf "%s" "$j" | parse_json_field ip)"
-    GEO_CC="$(printf "%s" "$j" | parse_json_field country)"
-    GEO_COUNTRY="$(printf "%s" "$j" | parse_json_field country_name)"
-    GEO_REGION="$(printf "%s" "$j" | parse_json_field region)"
-    GEO_CITY="$(printf "%s" "$j" | parse_json_field city)"
+    GEO_IP="$(printf '%s' "$j" | parse_json_field ip)"
+    GEO_CC="$(printf '%s' "$j" | parse_json_field country)"
+    GEO_COUNTRY="$(printf '%s' "$j" | parse_json_field country_name)"
+    GEO_REGION="$(printf '%s' "$j" | parse_json_field region)"
+    GEO_CITY="$(printf '%s' "$j" | parse_json_field city)"
   fi
   if [[ -z "$GEO_CC" ]]; then
-    j="$(fetch https://ipwho.is/ || true)"
-    GEO_IP="$(printf "%s" "$j" | parse_json_field ip)"
-    GEO_CC="$(printf "%s" "$j" | parse_json_field country_code)"
-    GEO_COUNTRY="$(printf "%s" "$j" | parse_json_field country)"
-    GEO_REGION="$(printf "%s" "$j" | parse_json_field region)"
-    GEO_CITY="$(printf "%s" "$j" | parse_json_field city)"
+    j="$(fetch https://ipwho.is/)"
+    GEO_IP="$(printf '%s' "$j" | parse_json_field ip)"
+    GEO_CC="$(printf '%s' "$j" | parse_json_field country_code)"
+    GEO_COUNTRY="$(printf '%s' "$j" | parse_json_field country)"
+    GEO_REGION="$(printf '%s' "$j" | parse_json_field region)"
+    GEO_CITY="$(printf '%s' "$j" | parse_json_field city)"
   fi
   if [[ -z "$GEO_CC" ]]; then
-    GEO_CC="$(fetch https://ipinfo.io/country | tr -d '\r\n' || true)"
+    GEO_CC="$(fetch https://ipinfo.io/country | tr -d '\r\n')"
   fi
 }
 
@@ -88,322 +101,234 @@ norm_region(){
   local r="${1:-}"
   r="$(printf '%s' "$r" | tr '[:lower:]' '[:upper:]')"
   case "$r" in
-    JP|JPN) echo "JP" ;;
-    US|USA) echo "US" ;;
-    GB|GBR|UK) echo "GB" ;;
-    HK|HKG) echo "HK" ;;
-    TW|TWN) echo "TW" ;;
-    KR|KOR) echo "KR" ;;
-    CN|CHN) echo "CN" ;;
-    SG|SGP) echo "SG" ;;
-    DE|DEU) echo "DE" ;;
-    FR|FRA) echo "FR" ;;
-    IN|IND) echo "IN" ;;
-    *) [[ -n "$r" ]] && echo "$r" || echo "" ;;
+    JP|JPN) printf '%s\n' JP ;;
+    US|USA) printf '%s\n' US ;;
+    GB|GBR|UK) printf '%s\n' GB ;;
+    HK|HKG) printf '%s\n' HK ;;
+    TW|TWN) printf '%s\n' TW ;;
+    KR|KOR) printf '%s\n' KR ;;
+    CN|CHN) printf '%s\n' CN ;;
+    SG|SGP) printf '%s\n' SG ;;
+    DE|DEU) printf '%s\n' DE ;;
+    FR|FRA) printf '%s\n' FR ;;
+    IN|IND) printf '%s\n' IN ;;
+    *) printf '%s\n' "$r" ;;
   esac
 }
 
-yes_with_region(){
-  local name="$1" region="$2"
-  region="$(norm_region "$region")"
-  if [[ -n "$region" ]]; then
-    YES "$name" "YES (Region: $region)"
-  else
-    YES "$name" "YES"
-  fi
+extract_region_regex(){
+  local text="$1" regex="$2"
+  printf '%s' "$text" | grep -oE "$regex" | head -1 | grep -oE '[A-Z]{2}' || true
 }
-
 extract_quoted_country(){
-  local html="$1"
-  printf "%s" "$html" | grep -oE 'countryCode"[: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true
+  extract_region_regex "$1" 'countryCode"[: ]+"[A-Z]{2}"'
 }
 
 classify_http(){
-  # stdout: YES|NO|BLOCKED|UNKNOWN
-  local code="${1:-}"
+  local code="${1:-000}"
   case "$code" in
     200) printf '%s\n' YES ;;
     404) printf '%s\n' NO ;;
-    403|429) printf '%s\n' BLOCKED ;;
+    403|429) printf '%s\n' BLOCKED_OR_CHALLENGED ;;
     *) printf '%s\n' UNKNOWN ;;
   esac
 }
 
-netflix(){
-  local original full c1 c2 html region
-  original="https://www.netflix.com/title/80018499"
-  full="https://www.netflix.com/title/70143836"
-  c1="$(http_code "$original")"
-  c2="$(http_code "$full")"
-  html="$(fetch https://www.netflix.com/ || true)"
-  region="$(extract_quoted_country "$html")"
-  region="$(norm_region "$region")"
+# ---------- output ----------
+RESULTS_JSON=()
 
-  if [[ "$c2" == "200" ]]; then
-    [[ -n "$region" ]] && YES "Netflix" "YES (Full Library / Region: $region)" || YES "Netflix" "YES (Full Library)"
-  elif [[ "$c1" == "200" ]]; then
-    YES "Netflix" "YES (Originals Only)"
-  elif [[ "$c1" == "404" || "$c2" == "404" ]]; then
-    NO "Netflix" "NO"
-  elif [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "429" || "$c2" == "429" ]]; then
-    UNKNOWN "Netflix" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "Netflix" "UNKNOWN"
-  fi
+json_escape(){
+  local s="$1"
+  s=${s//\\/\\\\}; s=${s//"/\\"}; s=${s//$'\n'/\\n}; s=${s//$'\r'/}
+  printf '%s' "$s"
 }
 
-disney(){
-  local html c region cls
-  http_get "https://www.disneyplus.com/" c html
-  region="$(printf "%s" "$html" | grep -o '"countryCode":"[A-Z][A-Z]"' | head -1 | cut -d'"' -f4 || true)"
-  region="$(norm_region "$region")"
-
-  # positive
-  if printf "%s" "$html" | grep -qiE 'disney\+|stream now|disneyplus'; then
-    [[ -n "$region" ]] && YES "Disney+" "YES (Region: $region)" || YES "Disney+" "YES"
+emit_result(){
+  local name="$1" status="$2" note="${3:-}" region="${4:-}"
+  if [[ "$JSON_MODE" -eq 1 ]]; then
+    local j
+    j="{\"service\":\"$(json_escape "$name")\",\"status\":\"$(json_escape "$status")\""
+    [[ -n "$note" ]] && j+=",\"note\":\"$(json_escape "$note")\""
+    [[ -n "$region" ]] && j+=",\"region\":\"$(json_escape "$region")\""
+    j+="}"
+    RESULTS_JSON+=("$j")
     return
   fi
 
-  # explicit negative (content-based)
-  if printf "%s" "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
-    NO "Disney+" "NO"
-    return
-  fi
+  local msg="$status"
+  [[ -n "$note" ]] && msg+=" ($note)"
+  [[ -n "$region" ]] && msg+=" (Region: $region)"
 
-  cls="$(classify_http "$c")"
-  case "$cls" in
-    NO) NO "Disney+" "NO" ;;
-    BLOCKED) UNKNOWN "Disney+" "BLOCKED_OR_CHALLENGED" ;;
-    *) UNKNOWN "Disney+" "UNKNOWN" ;;
+  case "$status" in
+    YES) printf "%-25s %b%s%b\n" "$name" "$C_GREEN" "$msg" "$C_RESET" ;;
+    NO) printf "%-25s %b%s%b\n" "$name" "$C_RED" "$msg" "$C_RESET" ;;
+    *) printf "%-25s %b%s%b\n" "$name" "$C_YELLOW" "$msg" "$C_RESET" ;;
   esac
 }
 
-youtube(){
-  local html c region
-  http_get "https://www.youtube.com/premium" c html
-  [[ -z "$html" ]] && html="$(fetch https://www.youtube.com/premium || true)"
-
-  region="$(printf "%s" "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1 || true)"
-  region="$(norm_region "$region")"
-
-  # 明确不可用文案（多语言）
-  if printf "%s" "$html" | grep -qiE 'Premium is not available in your country|not available in your country|此国家/地区不可用|所在国家.*不可用|在你的国家.*不可用'; then
-    NO "YouTube Premium" "NO"
-    return
-  fi
-
-  # 明确可用文案（多种页面形态）
-  if printf "%s" "$html" | grep -qiE 'Get YouTube Premium|Try it free|YouTube and YouTube Music ad-free|Manage membership|youtube.com/premium'; then
-    [[ -n "$region" ]] && YES "YouTube Premium" "YES (Region: $region)" || YES "YouTube Premium" "YES"
-    return
-  fi
-
-  # 返回码辅助判断
-  if [[ "$c" == "404" ]]; then
-    NO "YouTube Premium" "NO"
-    return
-  fi
-  if [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "YouTube Premium" "BLOCKED_OR_CHALLENGED"
-    return
-  fi
-
-  # 模糊结果：页面可达但无明确正向信号，保持 UNKNOWN 避免误报
-  UNKNOWN "YouTube Premium" "UNKNOWN"
+emit_from_http(){
+  local name="$1" code="$2" region="${3:-}"
+  local cls
+  cls="$(classify_http "$code")"
+  emit_result "$name" "$cls" "" "$region"
 }
 
-prime(){
+# ---------- selection ----------
+normalize_key(){ printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_+-'; }
+
+declare -A ONLY_SET
+if [[ -n "$ONLY_RAW" ]]; then
+  IFS=',' read -r -a _arr <<<"$ONLY_RAW"
+  for s in "${_arr[@]}"; do ONLY_SET["$(normalize_key "$s")"]=1; done
+fi
+
+enabled(){
+  local k="$(normalize_key "$1")"
+  [[ -z "$ONLY_RAW" ]] && return 0
+  [[ -n "${ONLY_SET[$k]:-}" ]]
+}
+
+# ---------- probes ----------
+probe_netflix(){
+  enabled netflix || return 0
+  local c1 c2 html region
+  c1="$(http_code https://www.netflix.com/title/80018499)"
+  c2="$(http_code https://www.netflix.com/title/70143836)"
+  html="$(fetch https://www.netflix.com/)"
+  region="$(norm_region "$(extract_quoted_country "$html")")"
+
+  if [[ "$c2" == "200" ]]; then emit_result "Netflix" "YES" "Full Library" "$region"; return; fi
+  if [[ "$c1" == "200" ]]; then emit_result "Netflix" "YES" "Originals Only" "$region"; return; fi
+
+  local worst="$c2"
+  [[ "$c1" == "404" || "$c2" == "404" ]] && worst="404"
+  [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "429" || "$c2" == "429" ]] && worst="403"
+  emit_from_http "Netflix" "$worst" "$region"
+}
+
+probe_disney(){
+  enabled disney || return 0
+  local c html region
+  http_get "https://www.disneyplus.com/" c html
+  region="$(norm_region "$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')")"
+
+  if printf '%s' "$html" | grep -qiE 'disney\+|stream now|disneyplus'; then
+    emit_result "Disney+" "YES" "" "$region"; return
+  fi
+  if printf '%s' "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
+    emit_result "Disney+" "NO"; return
+  fi
+  emit_from_http "Disney+" "$c" "$region"
+}
+
+probe_youtube(){
+  enabled youtube || enabled youtubepremium || return 0
+  local c html region
+  http_get "https://www.youtube.com/premium" c html
+  region="$(norm_region "$(printf '%s' "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1)")"
+
+  if printf '%s' "$html" | grep -qiE 'Premium is not available in your country|not available in your country|此国家/地区不可用|所在国家.*不可用|在你的国家.*不可用'; then
+    emit_result "YouTube Premium" "NO"; return
+  fi
+  if printf '%s' "$html" | grep -qiE 'Get YouTube Premium|Try it free|YouTube and YouTube Music ad-free|Manage membership|youtube.com/premium'; then
+    emit_result "YouTube Premium" "YES" "" "$region"; return
+  fi
+  emit_from_http "YouTube Premium" "$c" "$region"
+}
+
+probe_prime(){
+  enabled prime || enabled primevideo || return 0
   local c html region
   http_get "https://www.primevideo.com/" c html
-  region="$(printf "%s" "$html" | grep -oE 'currentTerritory["=: ]+[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true)"
-  region="$(norm_region "$region")"
-  if [[ "$c" == "200" ]]; then
-    [[ -n "$region" ]] && YES "Amazon Prime Video" "YES (Region: $region)" || YES "Amazon Prime Video" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Amazon Prime Video" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Amazon Prime Video" "BLOCKED_OR_CHALLENGED"
+  region="$(norm_region "$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')")"
+  if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'prime video|watch anywhere|watch now'; then
+    emit_result "Amazon Prime Video" "YES" "" "$region"
   else
-    UNKNOWN "Amazon Prime Video" "UNKNOWN"
+    emit_from_http "Amazon Prime Video" "$c" "$region"
   fi
 }
 
-tiktok(){
+probe_tiktok(){
+  enabled tiktok || return 0
   local c html region
   http_get "https://www.tiktok.com/" c html
-  region="$(printf "%s" "$html" | grep -oE '"region":"[A-Z]{2}"' | head -1 | cut -d'"' -f4 || true)"
-  region="$(norm_region "$region")"
-  if [[ "$c" == "200" ]]; then
-    [[ -n "$region" ]] && YES "TikTok" "YES (Region: $region)" || YES "TikTok" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "TikTok" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "TikTok" "BLOCKED_OR_CHALLENGED"
+  region="$(norm_region "$(extract_region_regex "$html" '"region":"[A-Z]{2}"')")"
+  if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qi 'tiktok'; then
+    emit_result "TikTok" "YES" "" "$region"
   else
-    UNKNOWN "TikTok" "UNKNOWN"
+    emit_from_http "TikTok" "$c" "$region"
   fi
 }
 
-spotify(){
+probe_spotify(){
+  enabled spotify || return 0
   local c html region
   http_get "https://www.spotify.com/us/signup" c html
-  region="$(printf "%s" "$html" | grep -oE 'country["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
-  region="$(norm_region "$region")"
-  if [[ "$c" == "200" ]] && printf "%s" "$html" | grep -qiE 'sign up|spotify'; then
-    [[ -n "$region" ]] && YES "Spotify Registration" "YES (Region: $region)" || YES "Spotify Registration" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Spotify Registration" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Spotify Registration" "BLOCKED_OR_CHALLENGED"
+  region="$(norm_region "$(extract_region_regex "$html" 'country["=: ]+"[A-Z]{2}"')")"
+  if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'sign up|spotify'; then
+    emit_result "Spotify Registration" "YES" "" "$region"
   else
-    UNKNOWN "Spotify Registration" "UNKNOWN"
+    emit_from_http "Spotify Registration" "$c" "$region"
   fi
 }
 
-chatgpt(){
-  local c
-  c="$(http_code https://chatgpt.com/)"
-  if [[ "$c" == "200" ]]; then
-    YES "ChatGPT" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "ChatGPT" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "ChatGPT" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "ChatGPT" "UNKNOWN"
-  fi
+probe_chatgpt(){ enabled chatgpt || return 0; emit_from_http "ChatGPT" "$(http_code https://chatgpt.com/)"; }
+probe_gemini(){ enabled gemini || return 0; emit_from_http "Gemini" "$(http_code https://gemini.google.com/)"; }
+probe_claude(){ enabled claude || return 0; emit_from_http "Claude" "$(http_code https://claude.ai/)"; }
+probe_apple(){ enabled apple || return 0; emit_from_http "Apple" "$(http_code https://tv.apple.com/)"; }
+probe_sora(){ enabled sora || return 0; emit_from_http "Sora" "$(http_code https://sora.com/)"; }
+probe_metaai(){ enabled metaai || return 0; emit_from_http "MetaAI" "$(http_code https://www.meta.ai/)"; }
+
+probe_basic_service(){
+  local key="$1" name="$2" url="$3"
+  enabled "$key" || return 0
+  emit_from_http "$name" "$(http_code "$url")"
 }
 
-gemini(){
-  local c html region
-  http_get "https://gemini.google.com/" c html
-  region="$(printf "%s" "$html" | grep -oE 'countryCode["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
-  region="$(norm_region "$region")"
-  if [[ "$c" == "200" ]]; then
-    [[ -n "$region" ]] && YES "Gemini" "YES (Region: $region)" || YES "Gemini" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Gemini" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Gemini" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "Gemini" "UNKNOWN"
-  fi
-}
-
-claude(){
-  local c
-  c="$(http_code https://claude.ai/)"
-  if [[ "$c" == "200" ]]; then
-    YES "Claude" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Claude" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Claude" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "Claude" "UNKNOWN"
-  fi
-}
-
-
-extra_simple_yes(){
-  local name="$1" url="$2" c
-  c="$(http_code "$url")"
-  if [[ "$c" == "200" ]]; then
-    YES "$name" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "$name" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "$name" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "$name" "UNKNOWN"
-  fi
-}
-
-bing_extra(){ extra_simple_yes "BingSearch" "https://www.bing.com/"; }
-google_search_extra(){ extra_simple_yes "GoogleSearch" "https://www.google.com/"; }
-google_play_extra(){ extra_simple_yes "Google Play Store" "https://play.google.com/store"; }
-iqiyi_extra(){ extra_simple_yes "IQiYi" "https://www.iq.com/"; }
-insta_audio_extra(){ extra_simple_yes "Instagram Licensed Audio" "https://www.instagram.com/"; }
-kocowa_extra(){ extra_simple_yes "KOCOWA" "https://www.kocowa.com/"; }
-onetrust_extra(){ extra_simple_yes "OneTrust" "https://www.onetrust.com/"; }
-paramount_extra(){ extra_simple_yes "Paramount+" "https://www.paramountplus.com/"; }
-reddit_extra(){ extra_simple_yes "Reddit" "https://www.reddit.com/"; }
-sonyliv_extra(){ extra_simple_yes "SonyLiv" "https://www.sonyliv.com/"; }
-sora_extra(){
-  local c
-  c="$(http_code https://sora.com/)"
-  if [[ "$c" == "200" ]]; then
-    YES "Sora" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Sora" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Sora" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "Sora" "UNKNOWN"
-  fi
-}
-steam_extra(){ extra_simple_yes "Steam Store" "https://store.steampowered.com/"; }
-tvb_extra(){ extra_simple_yes "TVBAnywhere+" "https://www.tvbanywhere.com/"; }
-viu_extra(){ extra_simple_yes "Viu.com" "https://www.viu.com/"; }
-metaai_extra(){
-  # MetaAI 以主页可达性为主，不过度解读 API 授权返回
-  local home cls
-  home="$(http_code https://www.meta.ai/)"
-  cls="$(classify_http "$home")"
-  case "$cls" in
-    YES) YES "MetaAI" "YES" ;;
-    NO) NO "MetaAI" "NO" ;;
-    BLOCKED) UNKNOWN "MetaAI" "BLOCKED_OR_CHALLENGED" ;;
-    *) UNKNOWN "MetaAI" "UNKNOWN" ;;
-  esac
-}
-
-apple(){
-  local c html region
-  http_get "https://tv.apple.com/" c html
-  region="$(extract_quoted_country "$html")"
-  region="$(norm_region "$region")"
-  if [[ "$c" == "200" ]]; then
-    [[ -n "$region" ]] && YES "Apple" "YES (Region: $region)" || YES "Apple" "YES"
-  elif [[ "$c" == "404" ]]; then
-    NO "Apple" "NO"
-  elif [[ "$c" == "403" || "$c" == "429" ]]; then
-    UNKNOWN "Apple" "BLOCKED_OR_CHALLENGED"
-  else
-    UNKNOWN "Apple" "UNKNOWN"
-  fi
-}
-
+# ---------- main ----------
 check_deps
 load_geo
-echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
-[[ -n "$GEO_IP" ]] && echo "IP: $GEO_IP"
-if [[ -n "$GEO_COUNTRY$GEO_REGION$GEO_CITY$GEO_CC" ]]; then
-  echo "Location: ${GEO_COUNTRY:-unknown}${GEO_REGION:+, $GEO_REGION}${GEO_CITY:+, $GEO_CITY}${GEO_CC:+ ($GEO_CC)}"
+
+if [[ "$JSON_MODE" -eq 0 ]]; then
+  echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
+  [[ -n "$GEO_IP" ]] && echo "IP: $GEO_IP"
+  if [[ -n "$GEO_COUNTRY$GEO_REGION$GEO_CITY$GEO_CC" ]]; then
+    echo "Location: ${GEO_COUNTRY:-unknown}${GEO_REGION:+, $GEO_REGION}${GEO_CITY:+, $GEO_CITY}${GEO_CC:+ ($GEO_CC)}"
+  fi
+  echo "----------------------------------------"
 fi
-echo "----------------------------------------"
-netflix
-disney
-youtube
-prime
-tiktok
-spotify
-chatgpt
-gemini
-claude
-apple
-bing_extra
-google_search_extra
-google_play_extra
-iqiyi_extra
-insta_audio_extra
-kocowa_extra
-metaai_extra
-onetrust_extra
-paramount_extra
-reddit_extra
-sonyliv_extra
-sora_extra
-steam_extra
-tvb_extra
-viu_extra
+
+probe_netflix
+probe_disney
+probe_youtube
+probe_prime
+probe_tiktok
+probe_spotify
+probe_chatgpt
+probe_gemini
+probe_claude
+probe_apple
+probe_basic_service bing "BingSearch" "https://www.bing.com/"
+probe_basic_service google "GoogleSearch" "https://www.google.com/"
+probe_basic_service googleplay "Google Play Store" "https://play.google.com/store"
+probe_basic_service iqiyi "IQiYi" "https://www.iq.com/"
+probe_basic_service instagram "Instagram Licensed Audio" "https://www.instagram.com/"
+probe_basic_service kocowa "KOCOWA" "https://www.kocowa.com/"
+probe_metaai
+probe_basic_service onetrust "OneTrust" "https://www.onetrust.com/"
+probe_basic_service paramount "Paramount+" "https://www.paramountplus.com/"
+probe_basic_service reddit "Reddit" "https://www.reddit.com/"
+probe_basic_service sonyliv "SonyLiv" "https://www.sonyliv.com/"
+probe_sora
+probe_basic_service steam "Steam Store" "https://store.steampowered.com/"
+probe_basic_service tvb "TVBAnywhere+" "https://www.tvbanywhere.com/"
+probe_basic_service viu "Viu.com" "https://www.viu.com/"
+
+if [[ "$JSON_MODE" -eq 1 ]]; then
+  printf '{"ip":"%s","country":"%s","region":"%s","city":"%s","results":[' "$(json_escape "$GEO_IP")" "$(json_escape "$GEO_COUNTRY")" "$(json_escape "$GEO_REGION")" "$(json_escape "$GEO_CITY")"
+  for i in "${!RESULTS_JSON[@]}"; do
+    [[ "$i" -gt 0 ]] && printf ','
+    printf '%s' "${RESULTS_JSON[$i]}"
+  done
+  printf ']}\n'
+fi
