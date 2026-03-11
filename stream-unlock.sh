@@ -15,7 +15,14 @@ fetch(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time 20 "$@";
 code(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o /tmp/unlock.$$ -w '%{http_code}' --max-time 20 "$1" || true; }
 body(){ cat /tmp/unlock.$$ 2>/dev/null || true; }
 line(){ printf "%-25s %b%s%b\n" "$1" "$2" "$3" "$C_RESET"; }
-YES(){ line "$1" "$C_GREEN" "$2"; }
+YES(){
+  local name="$1" msg="$2" rg
+  rg="$(norm_region "${GEO_CC:-}")"
+  if [[ "$msg" == YES* ]] && [[ "$msg" != *"Region:"* ]] && [[ -n "$rg" ]]; then
+    msg="$msg (Region: $rg)"
+  fi
+  line "$name" "$C_GREEN" "$msg"
+}
 NO(){ line "$1" "$C_RED" "$2"; }
 UNKNOWN(){ line "$1" "$C_YELLOW" "$2"; }
 
