@@ -12,10 +12,22 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -4) IP_MODE="4" ;;
     -6) IP_MODE="6" ;;
-    --timeout) shift; TIMEOUT="${1:-20}" ;;
+    --timeout)
+      if [[ $# -lt 2 || "$2" == -* ]]; then
+        echo "--timeout requires a numeric value" >&2
+        exit 1
+      fi
+      shift; TIMEOUT="$1"
+      ;;
     --no-geo) NO_GEO=1 ;;
     --json) JSON_MODE=1 ;;
-    --only) shift; ONLY_RAW="${1:-}" ;;
+    --only)
+      if [[ $# -lt 2 || "$2" == -* ]]; then
+        echo "--only requires a comma-separated value" >&2
+        exit 1
+      fi
+      shift; ONLY_RAW="$1"
+      ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
   shift
@@ -39,7 +51,7 @@ CURL_COMMON=("${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time "$TIMEOUT
 
 check_deps(){
   local miss=()
-  for c in curl grep sed tr cut head mktemp; do
+  for c in curl grep sed tr head mktemp; do
     command -v "$c" >/dev/null 2>&1 || miss+=("$c")
   done
   if [[ ${#miss[@]} -gt 0 ]]; then
@@ -72,8 +84,10 @@ http_get(){
 # ---------- geo ----------
 GEO_IP=""; GEO_CC=""; GEO_COUNTRY=""; GEO_REGION=""; GEO_CITY=""
 
-# Best-effort JSON extraction (no jq dependency)
+# Best-effort JSON extraction for simple flat JSON fields (no jq dependency).
+# 不是完整 JSON parser；遇到复杂嵌套/转义字段可能不准确。
 parse_json_field(){
+
   local key="$1"
   sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
 }
@@ -122,8 +136,9 @@ norm_region(){
 }
 
 extract_region_regex(){
-  local text="$1" regex="$2"
-  printf '%s' "$text" | grep -oE "$regex" | head -1 | grep -oE '[A-Z]{2}' || true
+  local text="$1" regex="$2" r
+  r="$(printf '%s' "$text" | grep -oE "$regex" | head -1 | grep -oE '[A-Z]{2}' || true)"
+  norm_region "$r"
 }
 extract_quoted_country(){
   extract_region_regex "$1" 'countryCode"[: ]+"[A-Z]{2}"'
@@ -180,15 +195,28 @@ emit_from_http(){
 
 # ---------- selection ----------
 normalize_key(){ printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_+-'; }
+canonical_key(){
+  local k
+  k="$(normalize_key "$1")"
+  case "$k" in
+    disneyplus) k="disney" ;;
+    ytpremium|youtubepremium) k="youtube" ;;
+    prime-video|primevideo) k="prime" ;;
+    appletv|appletvplus) k="apple" ;;
+    meta-ai) k="metaai" ;;
+    tvbanywhere) k="tvb" ;;
+  esac
+  printf '%s\n' "$k"
+}
 
 declare -A ONLY_SET
 if [[ -n "$ONLY_RAW" ]]; then
   IFS=',' read -r -a _arr <<<"$ONLY_RAW"
-  for s in "${_arr[@]}"; do ONLY_SET["$(normalize_key "$s")"]=1; done
+  for s in "${_arr[@]}"; do ONLY_SET["$(canonical_key "$s")"]=1; done
 fi
 
 enabled(){
-  local k="$(normalize_key "$1")"
+  local k="$(canonical_key "$1")"
   [[ -z "$ONLY_RAW" ]] && return 0
   [[ -n "${ONLY_SET[$k]:-}" ]]
 }
@@ -200,22 +228,26 @@ probe_netflix(){
   c1="$(http_code https://www.netflix.com/title/80018499)"
   c2="$(http_code https://www.netflix.com/title/70143836)"
   html="$(fetch https://www.netflix.com/)"
-  region="$(norm_region "$(extract_quoted_country "$html")")"
+  region="$(extract_quoted_country "$html")"
 
   if [[ "$c2" == "200" ]]; then emit_result "Netflix" "YES" "Full Library" "$region"; return; fi
   if [[ "$c1" == "200" ]]; then emit_result "Netflix" "YES" "Originals Only" "$region"; return; fi
 
-  local worst="$c2"
-  [[ "$c1" == "404" || "$c2" == "404" ]] && worst="404"
-  [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "429" || "$c2" == "429" ]] && worst="403"
-  emit_from_http "Netflix" "$worst" "$region"
+  # precedence: 403/429 (blocked/challenged) > 404 (no) > unknown
+  if [[ "$c1" == "403" || "$c2" == "403" || "$c1" == "429" || "$c2" == "429" ]]; then
+    emit_from_http "Netflix" "403" "$region"
+  elif [[ "$c1" == "404" || "$c2" == "404" ]]; then
+    emit_from_http "Netflix" "404" "$region"
+  else
+    emit_from_http "Netflix" "000" "$region"
+  fi
 }
 
 probe_disney(){
   enabled disney || return 0
   local c html region
   http_get "https://www.disneyplus.com/" c html
-  region="$(norm_region "$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')")"
+  region="$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')"
 
   if printf '%s' "$html" | grep -qiE 'disney\+|disneyplus|watch now on disney\+'; then
     emit_result "Disney+" "YES" "" "$region"; return
@@ -227,7 +259,7 @@ probe_disney(){
 }
 
 probe_youtube(){
-  enabled youtube || enabled youtubepremium || return 0
+  enabled youtube || return 0
   local c html region
   http_get "https://www.youtube.com/premium" c html
   region="$(norm_region "$(printf '%s' "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1)")"
@@ -252,7 +284,7 @@ probe_prime(){
   enabled prime || enabled primevideo || return 0
   local c html region
   http_get "https://www.primevideo.com/" c html
-  region="$(norm_region "$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')")"
+  region="$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'prime video|watch anywhere|watch now'; then
     emit_result "Amazon Prime Video" "YES" "" "$region"
   else
@@ -264,7 +296,7 @@ probe_tiktok(){
   enabled tiktok || return 0
   local c html region
   http_get "https://www.tiktok.com/" c html
-  region="$(norm_region "$(extract_region_regex "$html" '"region":"[A-Z]{2}"')")"
+  region="$(extract_region_regex "$html" '"region":"[A-Z]{2}"')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qi 'tiktok'; then
     emit_result "TikTok" "YES" "" "$region"
   else
@@ -276,7 +308,7 @@ probe_spotify(){
   enabled spotify || return 0
   local c html region
   http_get "https://www.spotify.com/us/signup" c html
-  region="$(norm_region "$(extract_region_regex "$html" 'country["=: ]+"[A-Z]{2}"')")"
+  region="$(extract_region_regex "$html" 'country["=: ]+"[A-Z]{2}"')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'sign up|spotify'; then
     emit_result "Spotify Registration" "YES" "" "$region"
   else
@@ -289,7 +321,7 @@ probe_gemini(){
   enabled gemini || return 0
   local c html region
   http_get "https://gemini.google.com/" c html
-  region="$(norm_region "$(extract_region_regex "$html" 'countryCode["=: ]+"[A-Z]{2}"')")"
+  region="$(extract_region_regex "$html" 'countryCode["=: ]+"[A-Z]{2}"')"
   emit_from_http "Gemini" "$c" "$region"
 }
 probe_claude(){ enabled claude || return 0; emit_from_http "Claude" "$(http_code https://claude.ai/)"; }
@@ -297,7 +329,7 @@ probe_apple(){
   enabled apple || return 0
   local c html region
   http_get "https://tv.apple.com/" c html
-  region="$(norm_region "$(extract_quoted_country "$html")")"
+  region="$(extract_quoted_country "$html")"
   emit_from_http "Apple" "$c" "$region"
 }
 probe_sora(){ enabled sora || return 0; emit_from_http "Sora" "$(http_code https://sora.com/)"; }
