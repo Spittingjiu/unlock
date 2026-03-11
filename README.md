@@ -70,6 +70,7 @@ Netflix 分为：
 
 - 真实能确认可用：`YES`
 - 真实能确认不可用：`NO`
+- 命中风控/挑战（如 403/429）：`BLOCKED_OR_CHALLENGED`
 - 无法可靠判断：`UNKNOWN`
 - 只有真实拿到地区信息时才显示 `Region`
 

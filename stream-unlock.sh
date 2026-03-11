@@ -15,9 +15,19 @@ curl_ip_flag=()
 [[ "$IP_MODE" == "4" ]] && curl_ip_flag=(-4)
 [[ "$IP_MODE" == "6" ]] && curl_ip_flag=(-6)
 
-fetch(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time 20 "$@"; }
-code(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o /tmp/unlock.$$ -w '%{http_code}' --max-time 20 "$1" || true; }
-body(){ cat /tmp/unlock.$$ 2>/dev/null || true; }
+TIMEOUT=20
+TMP_BODY="$(mktemp -t unlock-body.XXXXXX)"
+trap 'rm -f "$TMP_BODY"' EXIT
+
+fetch(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed --max-time "$TIMEOUT" "$@"; }
+http_code(){ curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o /dev/null -w '%{http_code}' --max-time "$TIMEOUT" "$1" || true; }
+HTTP_CODE=""; HTTP_BODY=""
+http_get(){
+  local url="$1"
+  HTTP_CODE="$(curl "${curl_ip_flag[@]}" -A "$UA" -sL --compressed -o "$TMP_BODY" -w '%{http_code}' --max-time "$TIMEOUT" "$url" || true)"
+  HTTP_BODY="$(cat "$TMP_BODY" 2>/dev/null || true)"
+}
+
 line(){ printf "%-25s %b%s%b\n" "$1" "$2" "$3" "$C_RESET"; }
 YES(){
   local name="$1" msg="$2" rg
@@ -102,8 +112,8 @@ netflix(){
   local original full c1 c2 html region
   original="https://www.netflix.com/title/80018499"
   full="https://www.netflix.com/title/70143836"
-  c1="$(code "$original")"
-  c2="$(code "$full")"
+  c1="$(http_code "$original")"
+  c2="$(http_code "$full")"
   html="$(fetch https://www.netflix.com/ || true)"
   region="$(extract_quoted_country "$html")"
   region="$(norm_region "$region")"
@@ -135,8 +145,9 @@ disney(){
 
 youtube(){
   local html c region
-  c="$(code https://www.youtube.com/premium)"
-  html="$(body)"
+  http_get "https://www.youtube.com/premium"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   [[ -z "$html" ]] && html="$(fetch https://www.youtube.com/premium || true)"
 
   region="$(printf "%s" "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1 || true)"
@@ -170,8 +181,9 @@ youtube(){
 
 prime(){
   local c html region
-  c="$(code https://www.primevideo.com/)"
-  html="$(body)"
+  http_get "https://www.primevideo.com/"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   region="$(printf "%s" "$html" | grep -oE 'currentTerritory["=: ]+[A-Z]{2}' | grep -oE '[A-Z]{2}' | head -1 || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
@@ -185,8 +197,9 @@ prime(){
 
 tiktok(){
   local c html region
-  c="$(code https://www.tiktok.com/)"
-  html="$(body)"
+  http_get "https://www.tiktok.com/"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   region="$(printf "%s" "$html" | grep -oE '"region":"[A-Z]{2}"' | head -1 | cut -d'"' -f4 || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
@@ -200,8 +213,9 @@ tiktok(){
 
 spotify(){
   local c html region
-  c="$(code https://www.spotify.com/us/signup)"
-  html="$(body)"
+  http_get "https://www.spotify.com/us/signup"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   region="$(printf "%s" "$html" | grep -oE 'country["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]] && printf "%s" "$html" | grep -qiE 'sign up|spotify'; then
@@ -215,11 +229,13 @@ spotify(){
 
 chatgpt(){
   local c
-  c="$(code https://chatgpt.com/)"
-  if [[ "$c" == "200" || "$c" == "403" ]]; then
+  c="$(http_code https://chatgpt.com/)"
+  if [[ "$c" == "200" ]]; then
     YES "ChatGPT" "YES"
   elif [[ "$c" == "404" ]]; then
     NO "ChatGPT" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "ChatGPT" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "ChatGPT" "UNKNOWN"
   fi
@@ -227,14 +243,17 @@ chatgpt(){
 
 gemini(){
   local c html region
-  c="$(code https://gemini.google.com/)"
-  html="$(body)"
+  http_get "https://gemini.google.com/"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   region="$(printf "%s" "$html" | grep -oE 'countryCode["=: ]+"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
   region="$(norm_region "$region")"
-  if [[ "$c" == "200" || "$c" == "403" ]]; then
+  if [[ "$c" == "200" ]]; then
     [[ -n "$region" ]] && YES "Gemini" "YES (Region: $region)" || YES "Gemini" "YES"
   elif [[ "$c" == "404" ]]; then
     NO "Gemini" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Gemini" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Gemini" "UNKNOWN"
   fi
@@ -242,11 +261,13 @@ gemini(){
 
 claude(){
   local c
-  c="$(code https://claude.ai/)"
-  if [[ "$c" == "200" || "$c" == "403" ]]; then
+  c="$(http_code https://claude.ai/)"
+  if [[ "$c" == "200" ]]; then
     YES "Claude" "YES"
   elif [[ "$c" == "404" ]]; then
     NO "Claude" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Claude" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Claude" "UNKNOWN"
   fi
@@ -255,11 +276,13 @@ claude(){
 
 extra_simple_yes(){
   local name="$1" url="$2" c
-  c="$(code "$url")"
+  c="$(http_code "$url")"
   if [[ "$c" == "200" ]]; then
     YES "$name" "YES"
-  elif [[ "$c" == "403" || "$c" == "404" ]]; then
+  elif [[ "$c" == "404" ]]; then
     NO "$name" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "$name" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "$name" "UNKNOWN"
   fi
@@ -277,11 +300,13 @@ reddit_extra(){ extra_simple_yes "Reddit" "https://www.reddit.com/"; }
 sonyliv_extra(){ extra_simple_yes "SonyLiv" "https://www.sonyliv.com/"; }
 sora_extra(){
   local c
-  c="$(code https://sora.com/)"
-  if [[ "$c" == "200" || "$c" == "403" ]]; then
+  c="$(http_code https://sora.com/)"
+  if [[ "$c" == "200" ]]; then
     YES "Sora" "YES"
   elif [[ "$c" == "404" ]]; then
     NO "Sora" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    UNKNOWN "Sora" "BLOCKED_OR_CHALLENGED"
   else
     UNKNOWN "Sora" "UNKNOWN"
   fi
@@ -291,8 +316,8 @@ tvb_extra(){ extra_simple_yes "TVBAnywhere+" "https://www.tvbanywhere.com/"; }
 viu_extra(){ extra_simple_yes "Viu.com" "https://www.viu.com/"; }
 metaai_extra(){
   local ajax home
-  ajax="$(code https://www.meta.ai/api/)"
-  home="$(code https://www.meta.ai/)"
+  ajax="$(http_code https://www.meta.ai/api/)"
+  home="$(http_code https://www.meta.ai/)"
   if [[ "$ajax" == "200" && "$home" == "200" ]]; then
     YES "MetaAI" "YES"
   elif [[ "$ajax" == "401" || "$home" == "403" ]]; then
@@ -306,8 +331,9 @@ metaai_extra(){
 
 apple(){
   local c html region
-  c="$(code https://tv.apple.com/)"
-  html="$(body)"
+  http_get "https://tv.apple.com/"
+  c="$HTTP_CODE"
+  html="$HTTP_BODY"
   region="$(extract_quoted_country "$html")"
   region="$(norm_region "$region")"
   if [[ "$c" == "200" ]]; then
@@ -351,4 +377,3 @@ sora_extra
 steam_extra
 tvb_extra
 viu_extra
-rm -f /tmp/unlock.$$
