@@ -19,6 +19,40 @@ YES(){ line "$1" "$C_GREEN" "$2"; }
 NO(){ line "$1" "$C_RED" "$2"; }
 UNKNOWN(){ line "$1" "$C_YELLOW" "$2"; }
 
+GEO_IP=""
+GEO_CC=""
+GEO_COUNTRY=""
+GEO_REGION=""
+GEO_CITY=""
+
+parse_json_field(){
+  local key="$1"
+  sed -n "s/.*\"${key}\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" | head -1
+}
+
+load_geo(){
+  local j
+  j="$(fetch https://ipapi.co/json/ || true)"
+  if [[ -n "$j" ]] && grep -q '"country"' <<<"$j"; then
+    GEO_IP="$(printf "%s" "$j" | parse_json_field ip)"
+    GEO_CC="$(printf "%s" "$j" | parse_json_field country)"
+    GEO_COUNTRY="$(printf "%s" "$j" | parse_json_field country_name)"
+    GEO_REGION="$(printf "%s" "$j" | parse_json_field region)"
+    GEO_CITY="$(printf "%s" "$j" | parse_json_field city)"
+  fi
+  if [[ -z "$GEO_CC" ]]; then
+    j="$(fetch https://ipwho.is/ || true)"
+    GEO_IP="$(printf "%s" "$j" | parse_json_field ip)"
+    GEO_CC="$(printf "%s" "$j" | parse_json_field country_code)"
+    GEO_COUNTRY="$(printf "%s" "$j" | parse_json_field country)"
+    GEO_REGION="$(printf "%s" "$j" | parse_json_field region)"
+    GEO_CITY="$(printf "%s" "$j" | parse_json_field city)"
+  fi
+  if [[ -z "$GEO_CC" ]]; then
+    GEO_CC="$(fetch https://ipinfo.io/country | tr -d '\r\n' || true)"
+  fi
+}
+
 norm_region(){
   local r="${1:-}"
   r="$(echo "$r" | tr '[:lower:]' '[:upper:]')"
@@ -253,7 +287,13 @@ apple(){
   fi
 }
 
+load_geo
 echo -e "${C_BLUE}Streaming unlock test${C_RESET}"
+[[ -n "$GEO_IP" ]] && echo "IP: $GEO_IP"
+if [[ -n "$GEO_COUNTRY$GEO_REGION$GEO_CITY$GEO_CC" ]]; then
+  echo "Location: ${GEO_COUNTRY:-unknown}${GEO_REGION:+, $GEO_REGION}${GEO_CITY:+, $GEO_CITY}${GEO_CC:+ ($GEO_CC)}"
+fi
+echo "----------------------------------------"
 netflix
 disney
 youtube

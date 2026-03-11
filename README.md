@@ -72,3 +72,14 @@ Netflix 分为：
 - 真实能确认不可用：`NO`
 - 无法可靠判断：`UNKNOWN`
 - 只有真实拿到地区信息时才显示 `Region`
+
+## 新增：地区显示（Geo）
+
+脚本启动时会先显示当前出口地区信息，例如：
+
+```bash
+IP: 1.2.3.4
+Location: United States, California, Los Angeles (US)
+```
+
+地区来源优先级：`ipapi.co` -> `ipwho.is` -> `ipinfo.io/country`（兜底）。
