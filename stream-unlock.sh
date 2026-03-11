@@ -134,16 +134,31 @@ disney(){
 }
 
 youtube(){
-  local html region
-  html="$(fetch https://www.youtube.com/premium || true)"
-  region="$(printf "%s" "$html" | grep -o 'countryCode\":\"[A-Z][A-Z]' | head -1 | awk -F'"' '{print $3}' || true)"
+  local html c region
+  c="$(code https://www.youtube.com/premium)"
+  html="$(body)"
+  [[ -z "$html" ]] && html="$(fetch https://www.youtube.com/premium || true)"
+
+  region="$(printf "%s" "$html" | grep -oE 'countryCode\":\"[A-Z]{2}|INNERTUBE_CONTEXT_GL\":\"[A-Z]{2}|"countryCode":"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
   region="$(norm_region "$region")"
-  if printf "%s" "$html" | grep -qi 'YouTube and YouTube Music ad-free'; then
-    [[ -n "$region" ]] && YES "YouTube Region" "YES (Region: $region)" || YES "YouTube Region" "YES"
-  elif [[ -n "$html" ]]; then
-    NO "YouTube Region" "NO"
+
+  # 明确不可用文案（多语言）
+  if printf "%s" "$html" | grep -qiE 'Premium is not available in your country|not available in your country|此国家/地区不可用|所在国家.*不可用|在你的国家.*不可用'; then
+    NO "YouTube Premium" "NO"
+    return
+  fi
+
+  # 明确可用文案（多种页面形态）
+  if printf "%s" "$html" | grep -qiE 'Get YouTube Premium|Try it free|YouTube and YouTube Music ad-free|Manage membership|youtube.com/premium'; then
+    [[ -n "$region" ]] && YES "YouTube Premium" "YES (Region: $region)" || YES "YouTube Premium" "YES"
+    return
+  fi
+
+  # 返回码辅助判断：403/404 视为不可用，其它未知
+  if [[ "$c" == "403" || "$c" == "404" ]]; then
+    NO "YouTube Premium" "NO"
   else
-    UNKNOWN "YouTube Region" "UNKNOWN"
+    UNKNOWN "YouTube Premium" "UNKNOWN"
   fi
 }
 
