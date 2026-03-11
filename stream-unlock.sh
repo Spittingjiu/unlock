@@ -139,7 +139,7 @@ youtube(){
   html="$(body)"
   [[ -z "$html" ]] && html="$(fetch https://www.youtube.com/premium || true)"
 
-  region="$(printf "%s" "$html" | grep -oE 'countryCode\":\"[A-Z]{2}|INNERTUBE_CONTEXT_GL\":\"[A-Z]{2}|"countryCode":"[A-Z]{2}"' | head -1 | grep -oE '[A-Z]{2}' || true)"
+  region="$(printf "%s" "$html" | sed -nE 's/.*"countryCode":"([A-Z]{2})".*/\1/p; t done; s/.*INNERTUBE_CONTEXT_GL":"([A-Z]{2})".*/\1/p; :done' | head -1 || true)"
   region="$(norm_region "$region")"
 
   # 明确不可用文案（多语言）
@@ -154,9 +154,15 @@ youtube(){
     return
   fi
 
-  # 返回码辅助判断：403/404 视为不可用，其它未知
+  # 返回码辅助判断：403/404 视为不可用
   if [[ "$c" == "403" || "$c" == "404" ]]; then
     NO "YouTube Premium" "NO"
+    return
+  fi
+
+  # 强兜底：页面可达即判 YES（避免误报 UNKNOWN）
+  if [[ "$c" == "200" && -n "$html" ]]; then
+    [[ -n "$region" ]] && YES "YouTube Premium" "YES (Region: $region)" || YES "YouTube Premium" "YES"
   else
     UNKNOWN "YouTube Premium" "UNKNOWN"
   fi
