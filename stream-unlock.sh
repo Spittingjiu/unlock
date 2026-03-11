@@ -21,6 +21,11 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
+if ! [[ "$TIMEOUT" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+  echo "Invalid --timeout value: $TIMEOUT" >&2
+  exit 1
+fi
+
 if [[ -t 1 && "$JSON_MODE" -eq 0 ]]; then
   C_RESET=$'\033[0m'; C_GREEN=$'\033[32m'; C_RED=$'\033[31m'; C_YELLOW=$'\033[33m'; C_BLUE=$'\033[34m'
 else
@@ -156,7 +161,7 @@ emit_result(){
   fi
 
   local msg="$status"
-  [[ -n "$note" ]] && msg+=" ($note)"
+  [[ -n "$note" ]] && msg+=" - $note"
   [[ -n "$region" ]] && msg+=" (Region: $region)"
 
   case "$status" in
@@ -212,7 +217,7 @@ probe_disney(){
   http_get "https://www.disneyplus.com/" c html
   region="$(norm_region "$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')")"
 
-  if printf '%s' "$html" | grep -qiE 'disney\+|stream now|disneyplus'; then
+  if printf '%s' "$html" | grep -qiE 'disney\+|disneyplus|watch now on disney\+'; then
     emit_result "Disney+" "YES" "" "$region"; return
   fi
   if printf '%s' "$html" | grep -qiE 'not available in your region|currently unavailable|service unavailable in your location'; then
@@ -233,7 +238,14 @@ probe_youtube(){
   if printf '%s' "$html" | grep -qiE 'Get YouTube Premium|Try it free|YouTube and YouTube Music ad-free|Manage membership|youtube.com/premium'; then
     emit_result "YouTube Premium" "YES" "" "$region"; return
   fi
-  emit_from_http "YouTube Premium" "$c" "$region"
+  # ambiguous page: keep conservative to avoid false positive YES on generic 200
+  if [[ "$c" == "404" ]]; then
+    emit_result "YouTube Premium" "NO"
+  elif [[ "$c" == "403" || "$c" == "429" ]]; then
+    emit_result "YouTube Premium" "BLOCKED_OR_CHALLENGED" "" "$region"
+  else
+    emit_result "YouTube Premium" "UNKNOWN" "" "$region"
+  fi
 }
 
 probe_prime(){
@@ -273,11 +285,23 @@ probe_spotify(){
 }
 
 probe_chatgpt(){ enabled chatgpt || return 0; emit_from_http "ChatGPT" "$(http_code https://chatgpt.com/)"; }
-probe_gemini(){ enabled gemini || return 0; emit_from_http "Gemini" "$(http_code https://gemini.google.com/)"; }
+probe_gemini(){
+  enabled gemini || return 0
+  local c html region
+  http_get "https://gemini.google.com/" c html
+  region="$(norm_region "$(extract_region_regex "$html" 'countryCode["=: ]+"[A-Z]{2}"')")"
+  emit_from_http "Gemini" "$c" "$region"
+}
 probe_claude(){ enabled claude || return 0; emit_from_http "Claude" "$(http_code https://claude.ai/)"; }
-probe_apple(){ enabled apple || return 0; emit_from_http "Apple" "$(http_code https://tv.apple.com/)"; }
+probe_apple(){
+  enabled apple || return 0
+  local c html region
+  http_get "https://tv.apple.com/" c html
+  region="$(norm_region "$(extract_quoted_country "$html")")"
+  emit_from_http "Apple" "$c" "$region"
+}
 probe_sora(){ enabled sora || return 0; emit_from_http "Sora" "$(http_code https://sora.com/)"; }
-probe_metaai(){ enabled metaai || return 0; emit_from_http "MetaAI" "$(http_code https://www.meta.ai/)"; }
+probe_metaai(){ enabled metaai || return 0; emit_from_http "MetaAI (homepage)" "$(http_code https://www.meta.ai/)"; }
 
 probe_basic_service(){
   local key="$1" name="$2" url="$3"
@@ -325,7 +349,7 @@ probe_basic_service tvb "TVBAnywhere+" "https://www.tvbanywhere.com/"
 probe_basic_service viu "Viu.com" "https://www.viu.com/"
 
 if [[ "$JSON_MODE" -eq 1 ]]; then
-  printf '{"ip":"%s","country":"%s","region":"%s","city":"%s","results":[' "$(json_escape "$GEO_IP")" "$(json_escape "$GEO_COUNTRY")" "$(json_escape "$GEO_REGION")" "$(json_escape "$GEO_CITY")"
+  printf '{"ip":"%s","country":"%s","country_code":"%s","region":"%s","city":"%s","results":[' "$(json_escape "$GEO_IP")" "$(json_escape "$GEO_COUNTRY")" "$(json_escape "$GEO_CC")" "$(json_escape "$GEO_REGION")" "$(json_escape "$GEO_CITY")"
   for i in "${!RESULTS_JSON[@]}"; do
     [[ "$i" -gt 0 ]] && printf ','
     printf '%s' "${RESULTS_JSON[$i]}"
