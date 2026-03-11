@@ -143,19 +143,6 @@ extract_quoted_country(){
   extract_region_regex "$1" 'countryCode"[: ]+"[A-Z]{2}"'
 }
 
-extract_region_any(){
-  local html="$1" r=""
-  # strict / higher-confidence hints only
-  r="$(extract_region_regex "$html" 'INNERTUBE_CONTEXT_GL"[: ]+"[A-Z]{2}"')"
-  [[ -n "$r" ]] || r="$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')"
-  [[ -n "$r" ]] || r="$(extract_region_regex "$html" '"countryCode":"[A-Z]{2}"')"
-  printf '%s\n' "$r"
-}
-
-service_region_strict(){
-  local html="$1"
-  extract_region_any "$html"
-}
 
 classify_http(){
   local code="${1:-000}"
@@ -241,7 +228,8 @@ probe_netflix(){
   c1="$(http_code https://www.netflix.com/title/80018499)"
   c2="$(http_code https://www.netflix.com/title/70143836)"
   html="$(fetch https://www.netflix.com/)"
-  region="$(extract_quoted_country "$html")"
+  region="$(extract_region_regex "$html" '"countryCode"[: ]+"[A-Z]{2}"')"
+  [[ -n "$region" ]] || region="$(extract_region_regex "$html" '"requestCountry"[: ]+"[A-Z]{2}"')"
 
   if [[ "$c2" == "200" ]]; then emit_result "Netflix" "YES" "Full Library" "$region"; return; fi
   if [[ "$c1" == "200" ]]; then emit_result "Netflix" "YES" "Originals Only" "$region"; return; fi
@@ -298,6 +286,7 @@ probe_prime(){
   local c html region
   http_get "https://www.primevideo.com/" c html
   region="$(extract_region_regex "$html" 'currentTerritory["=: ]+[A-Z]{2}')"
+  [[ -n "$region" ]] || region="$(extract_region_regex "$html" 'customerTerritory["=: ]+[A-Z]{2}')"
   if [[ "$c" == "200" ]] && printf '%s' "$html" | grep -qiE 'prime video|watch anywhere|watch now'; then
     emit_result "Amazon Prime Video" "YES" "" "$region"
   else
@@ -335,7 +324,8 @@ probe_gemini(){
   enabled gemini || return 0
   local c html region
   http_get "https://gemini.google.com/" c html
-  region="$(service_region_strict "$html")"
+  region="$(extract_region_regex "$html" 'INNERTUBE_CONTEXT_GL"[: ]+"[A-Z]{2}"')"
+  [[ -n "$region" ]] || region="$(extract_region_regex "$html" 'countryCode["=: ]+"[A-Z]{2}"')"
   emit_from_http "Gemini" "$c" "$region"
 }
 probe_claude(){
